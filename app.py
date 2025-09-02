@@ -1,60 +1,47 @@
 import streamlit as st
 import pandas as pd
 import smtplib
+import os
 from email.mime.text import MIMEText
-from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
 
-# -------------------
-# CONFIGURACIÓN INICIAL
-# -------------------
-st.set_page_config(page_title="Encuesta de Satisfacción", page_icon="🧪", layout="centered")
+# Cargar variables de entorno
+load_dotenv()
 
-st.image("logo_crb.png", width=200)  # Logo CRB (debes subirlo al repo)
-st.title("Encuesta de Satisfacción – Toma de Muestras")
-st.write("Tu opinión es muy importante para mejorar nuestro servicio. Responde estas 3 preguntas en menos de 2 minutos.")
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
 
-# -------------------
-# FORMULARIO
-# -------------------
-expectativas = st.text_area("1. ¿Cuáles son tus expectativas de una toma de muestra?")
-cumplimiento = st.radio("2. ¿Fueron cumplidas tus expectativas en esta atención?", ["Sí", "Parcialmente", "No"])
-mejoras = st.text_area("3. ¿Qué esperas de la toma de muestra para cumplir mejor tus expectativas y satisfacción?")
+st.title("Encuesta de Satisfacción CRB")
 
-if st.button("Enviar respuesta"):
-    # Guardar en CSV
-    nueva_respuesta = {
-        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Expectativas": expectativas,
-        "Cumplimiento": cumplimiento,
-        "Mejoras": mejoras
-    }
+# Formulario
+nombre = st.text_input("Nombre")
+correo = st.text_input("Correo")
+satisfaccion = st.slider("Nivel de Satisfacción", 1, 5, 3)
+comentarios = st.text_area("Comentarios")
 
+if st.button("Enviar"):
+    # Guardar respuestas
+    df = pd.DataFrame([[nombre, correo, satisfaccion, comentarios]],
+                      columns=["Nombre", "Correo", "Satisfacción", "Comentarios"])
+    if os.path.exists("respuestas_encuesta.csv"):
+        df.to_csv("respuestas_encuesta.csv", mode='a', header=False, index=False)
+    else:
+        df.to_csv("respuestas_encuesta.csv", index=False)
+    
+    # Enviar correo
     try:
-        df = pd.read_csv("respuestas_encuesta.csv")
-    except FileNotFoundError:
-        df = pd.DataFrame(columns=["Fecha", "Expectativas", "Cumplimiento", "Mejoras"])
-
-    df = pd.concat([df, pd.DataFrame([nueva_respuesta])], ignore_index=True)
-    df.to_csv("respuestas_encuesta.csv", index=False)
-
-    # Enviar por correo (opcional: configura SMTP)
-    try:
-        msg = MIMEText(f"""
-        Nueva respuesta recibida:
-        Expectativas: {expectativas}
-        Cumplimiento: {cumplimiento}
-        Mejoras: {mejoras}
-        """)
-        msg["Subject"] = "Nueva respuesta – Encuesta de Satisfacción"
-        msg["From"] = "tu_correo@gmail.com"
-        msg["To"] = "destinatario@crb.cl"
-
-        # Configuración SMTP (ejemplo Gmail)
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login("tu_correo@gmail.com", "tu_password_app")
-            server.send_message(msg)
+        msg = MIMEMultipart()
+        msg["From"] = SMTP_USER
+        msg["To"] = correo
+        msg["Subject"] = "Resumen Encuesta Satisfacción CRB"
+        body = f"Gracias {nombre} por completar la encuesta.\nNivel de satisfacción: {satisfaccion}\nComentarios: {comentarios}"
+        msg.attach(MIMEText(body, "plain"))
+        
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, correo, msg.as_string())
+        
+        st.success("¡Encuesta enviada y correo enviado correctamente!")
     except Exception as e:
-        st.warning("⚠️ No se pudo enviar el correo (configura SMTP).")
-
-    st.success("✅ ¡Gracias por tu opinión! Tu respuesta ha sido registrada.")
+        st.error(f"Error al enviar correo: {e}")
